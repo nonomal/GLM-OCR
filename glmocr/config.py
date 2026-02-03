@@ -53,6 +53,45 @@ class OCRApiConfig(_BaseConfig):
     connection_pool_size: Optional[int] = 128
 
 
+class MaaSApiConfig(_BaseConfig):
+    """Configuration for Zhipu MaaS GLM-OCR API.
+
+    When using MaaS mode, the SDK acts as a thin wrapper that forwards requests
+    directly to the Zhipu cloud API without local processing.
+    """
+
+    # Enable MaaS mode (passthrough to Zhipu cloud API)
+    enabled: bool = False
+
+    # API endpoint (default: Zhipu GLM-OCR layout_parsing API)
+    api_url: str = "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
+
+    # Model name
+    model: str = "glm-ocr"
+
+    # API key (required for MaaS mode)
+    api_key: Optional[str] = None
+
+    # SSL verification
+    verify_ssl: bool = True
+
+    # Timeouts (seconds)
+    connect_timeout: int = 30
+    request_timeout: int = 300
+
+    # Retry settings
+    retry_max_attempts: int = 2
+    retry_backoff_base_seconds: float = 0.5
+    retry_backoff_max_seconds: float = 8.0
+    retry_jitter_ratio: float = 0.2
+    retry_status_codes: List[int] = Field(
+        default_factory=lambda: [429, 500, 502, 503, 504]
+    )
+
+    # Connection pool size
+    connection_pool_size: int = 16
+
+
 class PageLoaderConfig(_BaseConfig):
     max_tokens: int = 16384
     temperature: float = 0.01
@@ -102,6 +141,9 @@ class LayoutConfig(_BaseConfig):
 
 class PipelineConfig(_BaseConfig):
     enable_layout: bool = False
+
+    # MaaS mode configuration (Zhipu cloud API passthrough)
+    maas: MaaSApiConfig = Field(default_factory=MaaSApiConfig)
 
     page_loader: PageLoaderConfig = Field(default_factory=PageLoaderConfig)
     ocr_api: OCRApiConfig = Field(default_factory=OCRApiConfig)

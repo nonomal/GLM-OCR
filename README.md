@@ -25,10 +25,9 @@ GLM-OCR is a multimodal OCR model for complex document understanding, built on t
 
 ### Download Model
 
-| Model            | Download Links                                                                                                                                | Precision |
-|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| GLM-OCR          | [🤗 Hugging Face](https://huggingface.co/zai-org/GLM-OCR)<br> [🤖 ModelScope](https://modelscope.cn/models/ZhipuAI/GLM-OCR)                   | BF16      |
-
+| Model   | Download Links                                                                                                              | Precision |
+| ------- | --------------------------------------------------------------------------------------------------------------------------- | --------- |
+| GLM-OCR | [🤗 Hugging Face](https://huggingface.co/zai-org/GLM-OCR)<br> [🤖 ModelScope](https://modelscope.cn/models/ZhipuAI/GLM-OCR) | BF16      |
 
 ## GLM-OCR SDK
 
@@ -37,9 +36,7 @@ We provide an SDK for using GLM-OCR more efficiently and conveniently.
 ### Install SDK
 
 ```bash
-pip install glmocr
-
-# Or install from source
+# Install from source
 git clone https://github.com/zai-org/glm-ocr.git
 cd glm-ocr && pip install -e .
 
@@ -47,30 +44,35 @@ cd glm-ocr && pip install -e .
 pip install git+https://github.com/huggingface/transformers.git
 ```
 
-
 ### Model Deployment
 
-Two ways to run a GLM-OCR model service:
+Two ways to use GLM-OCR:
 
-#### Option 1: Zhipu MaaS API (Recommended)
+#### Option 1: Zhipu MaaS API (Recommended for Quick Start)
 
-No GPU needed – use the hosted API:
+Use the hosted cloud API – no GPU needed. The cloud service runs the complete GLM-OCR pipeline internally, so the SDK simply forwards your request and returns the result.
 
 1. Get an API key from https://open.bigmodel.cn
 2. Configure `config.yaml`:
 
 ```yaml
 pipeline:
-  ocr_api:
-    api_host: open.bigmodel.cn
-    api_port: 443
-    api_scheme: https
-    api_key: your-api-key
+  maas:
+    enabled: true # Enable MaaS mode
+    api_key: your-api-key # Required
 ```
+
+That's it! When `maas.enabled=true`, the SDK acts as a thin wrapper that:
+
+- Forwards your documents to the Zhipu cloud API
+- Returns the results directly (Markdown + JSON layout details)
+- No local processing, no GPU required
+
+API documentation: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr
 
 #### Option 2: Self-host with vLLM / SGLang
 
-You can use vLLM or SGLang to deploy an OpenAI-compatible service:
+Deploy the GLM-OCR model locally for full control. The SDK provides the complete pipeline: layout detection, parallel region OCR, and result formatting.
 
 ##### Using vLLM
 
@@ -108,14 +110,16 @@ python -m sglang.launch_server --model zai-org/GLM-OCR --port 8080
 
 ##### Update Configuration
 
-After launching the service, modify your `config.yaml`:
+After launching the service, configure `config.yaml`:
+
 ```yaml
 pipeline:
+  maas:
+    enabled: false # Disable MaaS mode (default)
   ocr_api:
-    api_host: localhost  # or your vLLM/SGLang server address
+    api_host: localhost # or your vLLM/SGLang server address
     api_port: 8080
 ```
-
 
 ### SDK Usage Guide
 
@@ -179,7 +183,6 @@ Semantics:
 - A list is treated as pages of a single document.
 - For multiple independent documents, call the endpoint multiple times (one document per request).
 
-
 ### Configuration
 
 Full configuration in `glmocr/config.yaml`:
@@ -223,18 +226,17 @@ pipeline:
 
 See [config.yaml](glmocr/config.yaml) for all options.
 
-
 ### Output Formats
 
 Here are two examples of output formats:
 
-+ JSON
+- JSON
 
 ```json
 [[{ "index": 0, "label": "text", "content": "...", "bbox_2d": null }]]
 ```
 
-+ Markdown
+- Markdown
 
 ```markdown
 # Document Title
@@ -245,7 +247,6 @@ Body...
 | ----- | ------- |
 | ...   | ...     |
 ```
-
 
 ### Example of full pipeline
 
@@ -260,7 +261,6 @@ Output structure (one folder per input):
 - `result.json` – structured OCR result
 - `result.md` – Markdown result
 - `imgs/` – cropped image regions (when layout mode is enabled)
-
 
 ### Modular Architecture
 
@@ -291,7 +291,6 @@ class MyPipeline:
     # Implement your own processing logic
     pass
 ```
-
 
 ## Acknowledgement
 

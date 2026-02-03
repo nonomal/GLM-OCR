@@ -18,7 +18,46 @@ logging:
 
 # Pipeline settings
 pipeline:
-  # OCR API client configuration
+  # ============================================================================
+  # MaaS Mode (Zhipu Cloud API)
+  # ============================================================================
+  # When enabled, the SDK forwards requests directly to Zhipu's cloud API
+  # without local processing. The cloud service handles layout detection,
+  # OCR, and result formatting internally.
+  #
+  # Use this mode when:
+  # - You don't have a GPU or don't want to self-host
+  # - You want the simplest setup (just need an API key)
+  # - You want to use the exact same service as Zhipu's cloud offering
+  #
+  # Note: When maas.enabled=true, the ocr_api and layout settings below are ignored.
+  maas:
+    enabled: false # Set to true to use MaaS mode
+    api_url: https://open.bigmodel.cn/api/paas/v4/layout_parsing
+    model: glm-ocr
+    api_key: null # Required! Get from https://open.bigmodel.cn
+    verify_ssl: true
+    connect_timeout: 30
+    request_timeout: 300
+    retry_max_attempts: 2
+    retry_backoff_base_seconds: 0.5
+    retry_backoff_max_seconds: 8.0
+    retry_jitter_ratio: 0.2
+    retry_status_codes: [429, 500, 502, 503, 504]
+    connection_pool_size: 16
+
+  # ============================================================================
+  # Self-hosted Mode (vLLM / SGLang)
+  # ============================================================================
+  # When maas.enabled=false, the SDK uses the settings below to connect to
+  # a self-hosted vLLM or SGLang service running the GLM-OCR model.
+  #
+  # Use this mode when:
+  # - You have GPU resources and want full control
+  # - You need offline/air-gapped operation
+  # - You want to customize the pipeline (layout detection, prompts, etc.)
+
+  # OCR API client configuration (for self-hosted vLLM/SGLang)
   ocr_api:
     # Basic connection
     api_host: 127.0.0.1

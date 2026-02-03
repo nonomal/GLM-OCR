@@ -9,7 +9,6 @@
     📍 使用 GLM-OCR 的 <a href="https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr" target="_blank">API</a>
 </p>
 
-
 ### 模型介绍
 
 GLM-OCR 是一款面向复杂文档理解的多模态 OCR 模型，基于 GLM-V 编码器—解码器架构构建。它引入 Multi-Token Prediction（MTP）损失与稳定的全任务强化学习训练策略，以提升训练效率、识别精度与泛化能力。模型集成了在大规模图文数据上预训练的 CogViT 视觉编码器、带高效 token 下采样的轻量跨模态连接器，以及 GLM-0.5B 语言解码器。结合基于 PP-DocLayout-V3 的“两阶段”流程——先做版面分析，再进行并行识别——GLM-OCR 能在多样化文档布局下提供稳健且高质量的 OCR 表现。
@@ -26,10 +25,9 @@ GLM-OCR 是一款面向复杂文档理解的多模态 OCR 模型，基于 GLM-V 
 
 ### 下载模型
 
-| 模型 | 下载链接 | 精度 |
-|------|----------|------|
+| 模型    | 下载链接                                                                                                                    | 精度 |
+| ------- | --------------------------------------------------------------------------------------------------------------------------- | ---- |
 | GLM-OCR | [🤗 Hugging Face](https://huggingface.co/zai-org/GLM-OCR)<br> [🤖 ModelScope](https://modelscope.cn/models/ZhipuAI/GLM-OCR) | BF16 |
-
 
 ## GLM-OCR SDK
 
@@ -50,27 +48,33 @@ pip install git+https://github.com/huggingface/transformers.git
 
 ### 模型服务部署
 
-提供两种方式运行 GLM-OCR 模型服务：
+提供两种方式使用 GLM-OCR：
 
-#### 方式 1：智谱 MaaS API（推荐）
+#### 方式 1：智谱 MaaS API（推荐快速上手）
 
-无需 GPU，直接使用托管 API：
+使用云端托管 API，无需 GPU。云端服务已内置完整的 GLM-OCR 流水线，SDK 只做请求中转，直接返回结果。
 
 1. 在 https://open.bigmodel.cn 获取 API Key
 2. 配置 `config.yaml`：
 
 ```yaml
 pipeline:
-  ocr_api:
-    api_host: open.bigmodel.cn
-    api_port: 443
-    api_scheme: https
-    api_key: your-api-key
+  maas:
+    enabled: true # 启用 MaaS 模式
+    api_key: your-api-key # 必填
 ```
+
+配置完成！当 `maas.enabled=true` 时，SDK 作为轻量级封装：
+
+- 将文档转发到智谱云端 API
+- 直接返回结果（Markdown + JSON 版面详情）
+- 无需本地处理，无需 GPU
+
+API 文档：https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr
 
 #### 方式 2：使用 vLLM / SGLang 自部署
 
-你可以使用 vLLM 或 SGLang 部署一个 OpenAI 兼容服务。
+本地部署 GLM-OCR 模型，完全掌控。SDK 提供完整的处理流水线：版面检测、并行区域 OCR、结果格式化。
 
 ##### 使用 vLLM
 
@@ -108,10 +112,12 @@ python -m sglang.launch_server --model zai-org/GLM-OCR --port 8080
 
 ##### 更新配置
 
-启动服务后，修改 `config.yaml`：
+启动服务后，配置 `config.yaml`：
 
 ```yaml
 pipeline:
+  maas:
+    enabled: false # 禁用 MaaS 模式（默认）
   ocr_api:
     api_host: localhost # 或你的 vLLM/SGLang 服务地址
     api_port: 8080
@@ -287,7 +293,6 @@ class MyPipeline:
     # 实现你自己的处理逻辑
     pass
 ```
-
 
 ## 致谢
 
