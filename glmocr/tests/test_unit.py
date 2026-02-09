@@ -107,6 +107,62 @@ class TestPageLoader:
         pages = loader.load_pages(pdf_uri)
         assert len(pages) >= 1
 
+    def test_iter_pages_with_unit_indices_pdf_and_multi_source(self):
+        """Streaming: pages yielded incrementally; unit indices correct for multi-source."""
+        from glmocr.config import PageLoaderConfig
+        from glmocr.dataloader import PageLoader
+        from glmocr.utils.image_utils import PYPDFIUM2_AVAILABLE
+
+        if not PYPDFIUM2_AVAILABLE:
+            pytest.skip("pypdfium2 is not installed")
+
+        repo_root = Path(__file__).resolve().parents[2]
+        source_dir = repo_root / "examples" / "source"
+        if not source_dir.exists():
+            pytest.skip(f"No source dir: {source_dir}")
+
+        sample_pdf = next(
+            (f for f in source_dir.iterdir() if f.suffix.lower() == ".pdf"),
+            None,
+        )
+        sample_image = next(
+            (f for f in source_dir.iterdir() if f.suffix.lower() in (".png", ".jpg")),
+            None,
+        )
+        if not sample_pdf or not sample_pdf.exists():
+            pytest.skip(f"No sample PDF in {source_dir}")
+
+        loader = PageLoader(PageLoaderConfig())
+
+        # (1) Single PDF: pages yielded incrementally, same count as load_pages
+        expected_pages, _ = loader.load_pages_with_unit_indices(str(sample_pdf))
+        streamed = list(loader.iter_pages_with_unit_indices(str(sample_pdf)))
+        assert len(streamed) == len(
+            expected_pages
+        ), "streaming should yield same number of pages as load"
+        for i, (page, unit_idx) in enumerate(streamed):
+            assert unit_idx == 0, "single source should have unit_idx 0"
+            assert page is not None
+
+        # (2) Multi-source: unit indices match load_pages_with_unit_indices
+        if sample_image and sample_image.exists():
+            sources = [str(sample_image), str(sample_pdf)]
+        else:
+            pdfs = sorted(f for f in source_dir.iterdir() if f.suffix.lower() == ".pdf")
+            if len(pdfs) < 2:
+                pytest.skip(
+                    "need second source (image or another PDF) for multi-source test"
+                )
+            sources = [str(pdfs[0]), str(pdfs[1])]
+
+        expected_pages, expected_indices = loader.load_pages_with_unit_indices(sources)
+        streamed = list(loader.iter_pages_with_unit_indices(sources))
+        assert len(streamed) == len(expected_pages)
+        for i, (page, unit_idx) in enumerate(streamed):
+            assert (
+                unit_idx == expected_indices[i]
+            ), f"page {i}: expected unit_idx {expected_indices[i]}, got {unit_idx}"
+
 
 class TestParseResult:
     """Tests for ParseResult."""
