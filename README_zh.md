@@ -9,6 +9,10 @@
     📍 使用 GLM-OCR 的 <a href="https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr" target="_blank">API</a>
 </p>
 
+<div align="center">
+  简体中文 | <a href="README.md">English</a>
+</div>
+
 ### 模型介绍
 
 GLM-OCR 是一款面向复杂文档理解的多模态 OCR 模型，基于 GLM-V 编码器—解码器架构构建。它引入 Multi-Token Prediction（MTP）损失与稳定的全任务强化学习训练策略，以提升训练效率、识别精度与泛化能力。模型集成了在大规模图文数据上预训练的 CogViT 视觉编码器、带高效 token 下采样的轻量跨模态连接器，以及 GLM-0.5B 语言解码器。结合基于 PP-DocLayout-V3 的“两阶段”流程——先做版面分析，再进行并行识别——GLM-OCR 能在多样化文档布局下提供稳健且高质量的 OCR 表现。
@@ -22,6 +26,11 @@ GLM-OCR 是一款面向复杂文档理解的多模态 OCR 模型，基于 GLM-V 
 - 高效推理：总参数量仅 0.9B，支持通过 vLLM、SGLang 与 Ollama 部署，显著降低推理时延与算力成本，适用于高并发服务与端侧部署。
 
 - 上手简单：全面开源，并提供完整 [SDK](https://github.com/zai-org/GLM-OCR) 与推理工具链，支持便捷安装、一行调用、以及与现有生产流程的顺滑集成。
+
+### 最新动态
+
+- **[Coming Soon]** GLM-OCR 技术报告
+- **[2026.2.12]** 基于 LLaMA-Factory 的微调教程上线，详情见： [GLM-OCR 微调教程](examples/finetune/README_zh.md)
 
 ### 下载模型
 
@@ -327,3 +336,6 @@ class MyPipeline:
 GLM-OCR 模型遵循 MIT License。
 
 完整 OCR pipeline 集成了用于文档版面分析的 [PP-DocLayoutV3](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3)，该组件遵循 Apache License 2.0。使用本项目时请同时遵守相关许可证。
+
+## 引用
+GLM-OCR 技术报告即将发布。
