@@ -2,11 +2,21 @@
 
 import os
 import sys
+import time
 import traceback
+import uuid
 import multiprocessing
 from typing import TYPE_CHECKING
 
-from flask import Flask, request, jsonify
+try:
+    from flask import Flask, request, jsonify
+
+    _FLASK_IMPORT_ERROR = None
+except ImportError as e:  # pragma: no cover
+    Flask = None  # type: ignore
+    request = None  # type: ignore
+    jsonify = None  # type: ignore
+    _FLASK_IMPORT_ERROR = e
 
 from glmocr.pipeline import Pipeline
 from glmocr.config import load_config
@@ -21,6 +31,23 @@ os.environ["http_proxy"] = ""
 os.environ["https_proxy"] = ""
 
 
+def _build_response(json_result, markdown_result):
+    """Build response dict with both SDK native and MaaS-compatible fields."""
+    return {
+        # SDK native fields
+        "json_result": json_result,
+        "markdown_result": markdown_result,
+        # MaaS-compatible fields
+        "layout_details": json_result,
+        "md_results": markdown_result,
+        "data_info": {"pages": []},
+        "usage": {},
+        "model": "glm-ocr",
+        "id": f"chatcmpl-{uuid.uuid4().hex[:29]}",
+        "created": int(time.time()),
+    }
+
+
 def create_app(config: "GlmOcrConfig") -> Flask:
     """Create a Flask app.
 
@@ -30,6 +57,12 @@ def create_app(config: "GlmOcrConfig") -> Flask:
     Returns:
         Flask app instance.
     """
+    if Flask is None:
+        raise ImportError(
+            "Flask server support requires the optional server extra. "
+            "Install with: pip install 'glmocr[server]'"
+        ) from _FLASK_IMPORT_ERROR
+
     app = Flask(__name__)
 
     # Create pipeline with typed config
@@ -73,6 +106,12 @@ def create_app(config: "GlmOcrConfig") -> Flask:
         if isinstance(images, str):
             images = [images]
 
+        # Compatibility: MaaS client uses "file" field instead of "images"
+        if not images and "file" in data:
+            file_val = data["file"]
+            if isinstance(file_val, str) and file_val:
+                images = [file_val]
+
         if not images:
             return jsonify({"error": "No images provided"}), 400
 
@@ -91,23 +130,14 @@ def create_app(config: "GlmOcrConfig") -> Flask:
                 pipeline.process(
                     request_data,
                     save_layout_visualization=False,
-                    layout_vis_output_dir=None,
                 )
             )
             if not results:
-                return (
-                    jsonify({"json_result": None, "markdown_result": ""}),
-                    200,
-                )
+                return jsonify(_build_response(None, "")), 200
             if len(results) == 1:
                 r = results[0]
                 return (
-                    jsonify(
-                        {
-                            "json_result": r.json_result,
-                            "markdown_result": r.markdown_result or "",
-                        }
-                    ),
+                    jsonify(_build_response(r.json_result, r.markdown_result or "")),
                     200,
                 )
             # Multiple units: merge json as list, markdown with separator
@@ -115,15 +145,7 @@ def create_app(config: "GlmOcrConfig") -> Flask:
             markdown_result = "\n\n---\n\n".join(
                 r.markdown_result or "" for r in results
             )
-            return (
-                jsonify(
-                    {
-                        "json_result": json_result,
-                        "markdown_result": markdown_result,
-                    }
-                ),
-                200,
-            )
+            return jsonify(_build_response(json_result, markdown_result)), 200
 
         except Exception as e:
             logger.error("Parse error: %s", e)

@@ -15,14 +15,19 @@ from __future__ import annotations
 import re
 import json
 from copy import deepcopy
-from wordfreq import zipf_frequency
 from typing import TYPE_CHECKING, List, Dict, Tuple, Any
+
+try:  # Optional dependency for better English word validation quality.
+    from wordfreq import zipf_frequency
+except Exception:  # pragma: no cover
+    zipf_frequency = None
 
 from glmocr.postprocess.base_post_processor import BasePostProcessor
 from glmocr.utils.logging import get_logger, get_profiler
 from glmocr.utils.result_postprocess_utils import (
     clean_repeated_content,
     clean_formula_number,
+    normalize_inline_formula,
 )
 
 if TYPE_CHECKING:
@@ -43,7 +48,7 @@ class ResultFormatter(BasePostProcessor):
         formatter = ResultFormatter(ResultFormatterConfig())
 
         # Layout mode: process grouped results
-        json_str, md_str = formatter.process(grouped_results)
+        json_str, md_str, image_files = formatter.process(grouped_results)
 
         # OCR-only mode: format a single output
         json_str, md_str = formatter.format_ocr_result(content)
@@ -62,6 +67,9 @@ class ResultFormatter(BasePostProcessor):
 
         # Output format
         self.output_format = config.output_format
+        self.enable_merge_formula_numbers = config.enable_merge_formula_numbers
+        self.enable_merge_text_blocks = config.enable_merge_text_blocks
+        self.enable_format_bullet_points = config.enable_format_bullet_points
 
     # =========================================================================
     # OCR-only mode
@@ -132,14 +140,25 @@ class ResultFormatter(BasePostProcessor):
     # Layout mode
     # =========================================================================
 
-    def process(self, grouped_results: List[List[Dict]]) -> Tuple[str, str]:
+    def process(
+        self,
+        grouped_results: List[List[Dict]],
+        cropped_images: Dict[tuple, Any] | None = None,
+        image_prefix: str = "cropped",
+    ) -> Tuple[str, str, Dict[str, Any]]:
         """Process grouped results in layout mode.
 
         Args:
             grouped_results: Region recognition results grouped by page.
+            cropped_images: Pre-cropped PIL images keyed by
+                ``(local_page_idx, *bbox)``; when provided, image regions
+                are resolved to final file paths directly in the markdown
+                and JSON output.
+            image_prefix: Filename prefix for saved images.
 
         Returns:
-            (json_str, markdown_str)
+            (json_str, markdown_str, image_files) where *image_files* maps
+            ``filename`` → PIL Image for the caller to persist.
         """
         json_final_results = []
 
@@ -166,13 +185,22 @@ class ResultFormatter(BasePostProcessor):
                         result["native_label"],
                     )
 
-                    # Skip empty content (after formatting)
-                    content = result.get("content")
-                    if isinstance(content, str) and content.strip() == "":
-                        continue
+                    # Skip empty or failed content (after formatting)
+                    # Image/chart regions (task_type "skip") have no text
+                    # content and must not be filtered out here.
+                    is_image_region = (
+                        result["label"] == "image" or result.get("task_type") == "skip"
+                    )
+                    if not is_image_region:
+                        content = result.get("content")
+                        if content is None or (
+                            isinstance(content, str) and content.strip() == ""
+                        ):
+                            continue
 
                     # Update index
                     result["index"] = valid_idx
+                    result["_is_image"] = is_image_region
                     result.pop("task_type", None)
                     result.pop("score", None)
                     valid_idx += 1
@@ -180,27 +208,45 @@ class ResultFormatter(BasePostProcessor):
                     json_page_results.append(result)
 
                 # Merge formula with formula_number
-                json_page_results = self._merge_formula_numbers(json_page_results)
+                if self.enable_merge_formula_numbers:
+                    json_page_results = self._merge_formula_numbers(json_page_results)
 
                 # Merge hyphenated text blocks
-                json_page_results = self._merge_text_blocks(json_page_results)
+                if self.enable_merge_text_blocks:
+                    json_page_results = self._merge_text_blocks(json_page_results)
 
                 # Format bullet points
-                json_page_results = self._format_bullet_points(json_page_results)
+                if self.enable_format_bullet_points:
+                    json_page_results = self._format_bullet_points(json_page_results)
 
                 json_final_results.append(json_page_results)
 
-        # Generate markdown results
+        # Generate markdown results and resolve image regions
+        image_files: Dict[str, Any] = {}
+        image_counter = 0
         with profiler.measure("generate_markdown"):
             markdown_final_results = []
             for page_idx, json_page_results in enumerate(json_final_results):
                 markdown_page_results = []
                 for result in json_page_results:
                     content = result["content"]
-                    if result["label"] == "image":
-                        markdown_page_results.append(
-                            f"![](page={page_idx},bbox={result.get('bbox_2d', [])})"
+                    if result.pop("_is_image", False):
+                        bbox = result.get("bbox_2d", [])
+                        key = (page_idx, *bbox) if bbox else None
+                        img = (
+                            cropped_images.get(key) if cropped_images and key else None
                         )
+                        if img is not None:
+                            filename = (
+                                f"{image_prefix}_page{page_idx}_idx{image_counter}.jpg"
+                            )
+                            rel_path = f"imgs/{filename}"
+                            image_files[filename] = img
+                            result["image_path"] = rel_path
+                            markdown_page_results.append(
+                                f"![Image {page_idx}-{image_counter}]({rel_path})"
+                            )
+                            image_counter += 1
                     elif content:
                         markdown_page_results.append(content)
                 markdown_final_results.append("\n\n".join(markdown_page_results))
@@ -209,7 +255,7 @@ class ResultFormatter(BasePostProcessor):
             json_str = json.dumps(json_final_results, ensure_ascii=False)
         markdown_str = "\n\n".join(markdown_final_results)
 
-        return json_str, markdown_str
+        return json_str, markdown_str, image_files
 
     # =========================================================================
     # Content handling
@@ -234,6 +280,8 @@ class ResultFormatter(BasePostProcessor):
         if len(content) >= 2048:
             content = clean_repeated_content(content)
 
+        content = normalize_inline_formula(content)
+
         return content.strip()
 
     def _format_content(self, content: Any, label: str, native_label: str) -> str:
@@ -241,7 +289,18 @@ class ResultFormatter(BasePostProcessor):
         if content is None:
             return content
 
-        content = self._clean_content(str(content))
+        if label == "table":
+            if content.startswith("<table") and content.endswith("</table>"):
+                content = content.strip()
+            else:
+                content = self._clean_content(str(content))
+        elif label == "formula":
+            if content.startswith("$$") and content.endswith("$$"):
+                content = content.strip()
+            else:
+                content = self._clean_content(str(content))
+        else:
+            content = self._clean_content(str(content))
 
         # Title formatting
         if native_label == "doc_title":
@@ -257,20 +316,26 @@ class ResultFormatter(BasePostProcessor):
 
         # Formula formatting
         if label == "formula":
-            if content.startswith("$$") and content.endswith("$$"):
-                content = content[2:-2].strip()
-                content = "$$\n" + content + "\n$$"
-            elif content.startswith("\\[") and content.endswith("\\]"):
-                content = content[2:-2].strip()
-                content = "$$\n" + content + "\n$$"
-            elif content.startswith("\\(") and content.endswith("\\)"):
-                content = content[2:-2].strip()
-                content = "$$\n" + content + "\n$$"
-            else:
-                content = "$$\n" + content + "\n$$"
+            if (
+                content.startswith("$$")
+                or content.startswith("\\[")
+                or content.startswith("\\(")
+            ):
+                content = content[2:].strip()
+            if (
+                content.endswith("$$")
+                or content.endswith("\\]")
+                or content.endswith("\\)")
+            ):
+                content = content[:-2].strip()
+            content = "$$\n" + content + "\n$$"
 
         # Text formatting
         if label == "text":
+            # Code blocks
+            if content.startswith("```") and (not content.endswith("```")):
+                content = content + "\n```"
+
             # Bullet points
             if (
                 content.startswith("·")
@@ -312,6 +377,32 @@ class ResultFormatter(BasePostProcessor):
     # =========================================================================
     # Text block processing
     # =========================================================================
+
+    def _is_likely_valid_merged_word(self, merged_word: str) -> bool:
+        """Check whether a hyphen-merged token looks like a valid word.
+
+        Uses `wordfreq` when available, and falls back to a lightweight
+        regex heuristic when `wordfreq` is not installed.
+        """
+        token = merged_word.strip().lower()
+        if not token:
+            return False
+
+        if zipf_frequency is not None:
+            try:
+                return zipf_frequency(token, "en") >= 2.5
+            except Exception:
+                pass
+
+        # Fallback heuristic (dependency-free):
+        # - alphabetic-ish token
+        # - length in a reasonable range
+        # - avoid obviously malformed merges
+        if not re.fullmatch(r"[a-z][a-z'\-]{2,30}", token):
+            return False
+        if "--" in token or "''" in token:
+            return False
+        return True
 
     def _merge_text_blocks(self, json_page_results: List[Dict]) -> List[Dict]:
         """Merge hyphenated text blocks.
@@ -364,8 +455,7 @@ class ResultFormatter(BasePostProcessor):
                                 merged_word = word_fragment_before + word_fragment_after
 
                                 # Validate merged word
-                                zipf_score = zipf_frequency(merged_word.lower(), "en")
-                                if zipf_score >= 2.5:
+                                if self._is_likely_valid_merged_word(merged_word):
                                     merged_content = (
                                         content_stripped[:-1] + next_content.lstrip()
                                     )

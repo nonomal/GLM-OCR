@@ -1,17 +1,17 @@
 ## GLM-OCR
 
+[中文阅读](README_zh.md)
+
 <div align="center">
 <img src=resources/logo.svg width="40%"/>
 </div>
 <p align="center">
     👋 Join our <a href="resources/WECHAT.md" target="_blank">WeChat</a> and <a href="https://discord.gg/QR7SARHRxK" target="_blank">Discord</a> community
     <br>
+    📖 Check out the GLM-OCR <a href="https://arxiv.org/abs/2603.10910" target="_blank">technical report</a>
+    <br>
     📍 Use GLM-OCR's <a href="https://docs.z.ai/guides/vlm/glm-ocr" target="_blank">API</a>
 </p>
-
-<div align="center">
-  <a href="README_zh.md">简体中文</a> | English
-</div>
 
 ### Model Introduction
 
@@ -29,7 +29,8 @@ GLM-OCR is a multimodal OCR model for complex document understanding, built on t
 
 ### News & Updates
 
-- **[Coming Soon]** GLM-OCR Technical Report
+- **[2026.3.12]** GLM-OCR SDK now supports agent-friendly Skill mode — just `pip install glmocr` + set API key, ready to use via CLI or Python with no GPU or YAML config needed. See: [GLM-OCR Skill](skills/glmocr/SKILL.md)
+- **[2026.3.12]** GLM-OCR Technical Report is now available. See: [GLM-OCR Technical Report](https://arxiv.org/abs/2603.10910)
 - **[2026.2.12]** Fine-tuning tutorial based on LLaMA-Factory is now available. See: [GLM-OCR Fine-tuning Guide](examples/finetune/README.md)
 
 ### Download Model
@@ -44,7 +45,20 @@ We provide an SDK for using GLM-OCR more efficiently and conveniently.
 
 ### Install SDK
 
-> [UV Installation](https://docs.astral.sh/uv/getting-started/installation/)
+Choose the lightest installation that matches your scenario:
+
+```bash
+# Cloud / MaaS + local images / PDFs (fastest install)
+pip install glmocr
+
+# Self-hosted pipeline (layout detection)
+pip install "glmocr[selfhosted]"
+
+# Flask service support
+pip install "glmocr[server]"
+```
+
+Install from source for development:
 
 ```bash
 # Install from source
@@ -88,48 +102,85 @@ API documentation: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr
 
 Deploy the GLM-OCR model locally for full control. The SDK provides the complete pipeline: layout detection, parallel region OCR, and result formatting.
 
+Install the self-hosted extra first:
+
+```bash
+pip install "glmocr[selfhosted]"
+```
+
 ##### Using vLLM
 
 Install vLLM:
 
 ```bash
-uv pip install -U vllm --torch-backend=auto --extra-index-url https://wheels.vllm.ai/nightly
-# Or use Docker
-docker pull vllm/vllm-openai:nightly
+docker pull vllm/vllm-openai:v0.19.0-ubuntu2404
+```
+
+Or using with pip:
+
+```bash
+pip install -U "vllm>=0.19.0"
 ```
 
 Launch the service:
 
 ```bash
-# In docker container, uv may not be need for transformers install
-uv pip install git+https://github.com/huggingface/transformers.git
+pip install "transformers>=5.3.0"
 
-# Run with MTP for better performance
-vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080 --speculative-config '{"method": "mtp", "num_speculative_tokens": 1}' --served-model-name glm-ocr
+vllm serve zai-org/GLM-OCR  --port 8080 --speculative-config '{"method": "mtp", "num_speculative_tokens": 3}' --served-model-name glm-ocr
 ```
+
+>Note
+  Add `--max-model-len` and `--gpu-memory-utilization` according to Your own machine to handle large image/pdf
 
 ##### Using SGLang
 
 Install SGLang:
 
 ```bash
-docker pull lmsysorg/sglang:dev
-# Or build from source
-uv pip install git+https://github.com/sgl-project/sglang.git#subdirectory=python
+docker pull lmsysorg/sglang:v0.5.10
+```
+
+Or using with pip:
+
+```bash
+pip install "sglang>=0.5.10"
 ```
 
 Launch the service:
 
 ```bash
-# In docker container, uv may not be need for transformers install
-uv pip install git+https://github.com/huggingface/transformers.git
-
-# Run with MTP for better performance
-python -m sglang.launch_server --model zai-org/GLM-OCR --port 8080 --speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --served-model-name glm-ocr
-# Modify the speculative config base on your device
+SGLANG_ENABLE_SPEC_V2=1 sglang serve --model-path zai-org/GLM-OCR --port 8080 --speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --served-model-name glm-ocr
 ```
 
-##### Update Configuration
+>Note
+  Add `--context-len` and `--mem-fraction-static` according to Your own machine to handle large image/pdf
+
+
+#### Option 3: Ollama/MLX
+
+For specialized deployment scenarios, see the detailed guides:
+
+- **[Apple Silicon with mlx-vlm](examples/mlx-deploy/README.md)** - Optimized for Apple Silicon Macs
+- **[Ollama Deployment](examples/ollama-deploy/README.md)** - Simple local deployment with Ollama
+
+#### Option 4: SDK Server + Client (GPU-less Client)
+
+Deploy the SDK Server on a GPU machine, then use any machine as a client — no GPU needed on the client side. The client connects via the MaaS-compatible protocol, pointing `api_url` at your self-hosted server.
+
+```yaml
+# Client config.yaml
+pipeline:
+  maas:
+    enabled: true
+    api_url: http://<SERVER_IP>:5002/glmocr/parse
+    api_key: any-string    # self-hosted server does not validate keys
+    verify_ssl: false
+```
+
+See the full guide: **[Self-hosted SDK Server + Client](examples/self-host/README.md)**
+
+#### Update Configuration
 
 After launching the service, configure `config.yaml`:
 
@@ -141,13 +192,6 @@ pipeline:
     api_host: localhost # or your vLLM/SGLang server address
     api_port: 8080
 ```
-
-#### Option 3: Ollama/MLX
-
-For specialized deployment scenarios, see the detailed guides:
-
-- **[Apple Silicon with mlx-vlm](examples/mlx-deploy/README.md)** - Optimized for Apple Silicon Macs
-- **[Ollama Deployment](examples/ollama-deploy/README.md)** - Simple local deployment with Ollama
 
 ### SDK Usage Guide
 
@@ -168,6 +212,16 @@ glmocr parse examples/source/code.png --config my_config.yaml
 
 # Enable debug logging with profiling
 glmocr parse examples/source/code.png --log-level DEBUG
+
+# Run layout detection on CPU (keep GPU free for OCR model)
+glmocr parse examples/source/code.png --layout-device cpu
+
+# Run layout detection on a specific GPU
+glmocr parse examples/source/code.png --layout-device cuda:1
+
+# Override any config value via --set (dotted path, repeatable)
+glmocr parse examples/source/code.png --set pipeline.ocr_api.api_port 8080
+glmocr parse examples/source/ --set pipeline.layout.use_polygon true --set logging.level DEBUG
 ```
 
 #### Python API
@@ -188,9 +242,23 @@ with GlmOcr() as parser:
     result = parser.parse("image.png")
     print(result.json_result)
     result.save()
+
+# Place layout model on CPU (useful when GPU is reserved for OCR)
+with GlmOcr(layout_device="cpu") as parser:
+    result = parser.parse("image.png")
+
+# Place layout model on a specific GPU
+with GlmOcr(layout_device="cuda:1") as parser:
+    result = parser.parse("image.png")
 ```
 
 #### Flask Service
+
+Install the optional server dependency first:
+
+```bash
+pip install "glmocr[server]"
+```
 
 ```bash
 # Start service
@@ -211,84 +279,6 @@ Semantics:
 - A list is treated as pages of a single document.
 - For multiple independent documents, call the endpoint multiple times (one document per request).
 
-### Configuration
-
-Full configuration in `glmocr/config.yaml`:
-
-```yaml
-# Server (for glmocr.server)
-server:
-  host: "0.0.0.0"
-  port: 5002
-  debug: false
-
-# Logging
-logging:
-  level: INFO # DEBUG enables profiling
-
-# Pipeline
-pipeline:
-  # OCR API connection
-  ocr_api:
-    api_host: localhost
-    api_port: 8080
-    api_key: null # or set API_KEY env var
-    connect_timeout: 300
-    request_timeout: 300
-
-  # Page loader settings
-  page_loader:
-    max_tokens: 16384
-    temperature: 0.01
-    image_format: JPEG
-    min_pixels: 12544
-    max_pixels: 71372800
-
-  # Result formatting
-  result_formatter:
-    output_format: both # json, markdown, or both
-
-  # Layout detection (optional)
-  enable_layout: false
-```
-
-See [config.yaml](glmocr/config.yaml) for all options.
-
-### Output Formats
-
-Here are two examples of output formats:
-
-- JSON
-
-```json
-[[{ "index": 0, "label": "text", "content": "...", "bbox_2d": null }]]
-```
-
-- Markdown
-
-```markdown
-# Document Title
-
-Body...
-
-| Table | Content |
-| ----- | ------- |
-| ...   | ...     |
-```
-
-### Example of full pipeline
-
-you can run example code like：
-
-```bash
-python examples/example.py
-```
-
-Output structure (one folder per input):
-
-- `result.json` – structured OCR result
-- `result.md` – Markdown result
-- `imgs/` – cropped image regions (when layout mode is enabled)
 
 ### Modular Architecture
 
@@ -320,6 +310,16 @@ class MyPipeline:
     pass
 ```
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=zai-org%2FGLM-OCR&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zai-org/GLM-OCR&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zai-org/GLM-OCR&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zai-org/GLM-OCR&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Acknowledgement
 
 This project is inspired by the excellent work of the following projects and communities:
@@ -337,4 +337,17 @@ The GLM-OCR model is released under the MIT License.
 The complete OCR pipeline integrates [PP-DocLayoutV3](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3) for document layout analysis, which is licensed under the Apache License 2.0. Users should comply with both licenses when using this project.
 
 ## Citation
-GLM-OCR technical report is coming soon.
+
+If you find GLM-OCR useful in your research, please cite our technical report:
+
+```bibtex
+@misc{duan2026glmocrtechnicalreport,
+      title={GLM-OCR Technical Report},
+      author={Shuaiqi Duan and Yadong Xue and Weihan Wang and Zhe Su and Huan Liu and Sheng Yang and Guobing Gan and Guo Wang and Zihan Wang and Shengdong Yan and Dexin Jin and Yuxuan Zhang and Guohong Wen and Yanfeng Wang and Yutao Zhang and Xiaohan Zhang and Wenyi Hong and Yukuo Cen and Da Yin and Bin Chen and Wenmeng Yu and Xiaotao Gu and Jie Tang},
+      year={2026},
+      eprint={2603.10910},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2603.10910},
+}
+```
